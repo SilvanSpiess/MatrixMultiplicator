@@ -1,8 +1,10 @@
 import sys
 from PyQt5.QtWidgets import QApplication, QWidget, QLineEdit, QLabel, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QComboBox
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont, QIcon
+from PyQt5.QtGui import QFont
 from title_bar import TitleBar
+from sympy import Matrix, latex
+import pyperclip
 
 #***********************************
 # Stylesheet Dark / Light
@@ -41,13 +43,14 @@ window_style_sheet = ["""
 #***********************************
 greek_letters = ['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 'μ', 'ν', 'ξ', 'ο', 'π', 'ρ', 'σ', 'τ', 'υ', 'φ', 'χ', 'ψ', 'ω']
 
-max_rows, max_cols = 8, 8
+max_rows, max_cols = 5,5
+
+# pyinstaller --noconsole --onefile --distpath=./ --icon=icon.svg --name=Matrix_Multiplicators matrix_rechner.py 
 
 from PyQt5.QtCore import pyqtSignal
 
 class FocusLineEdit(QLineEdit):
-    focus_in_signal = pyqtSignal()  # Custom signal for focus
-    
+    focus_in_signal = pyqtSignal()  
     def focusInEvent(self, event):
         super(FocusLineEdit, self).focusInEvent(event)
         self.focus_in_signal.emit()  # Emit the focus signal when focused
@@ -59,18 +62,18 @@ class MatrixMultiplicationApp(QWidget):
         #***********************************
         # Setup main window
         #***********************************
-        self.setWindowTitle("Matrizen Multiplikator")        
-        self.setMinimumSize(800, 500)
+        self.setWindowTitle("Matrizen Multiplikator")   
+        self.setFixedSize(1250,625)
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setStyleSheet(window_style_sheet[0])
-        self.setWindowIcon(QIcon('./icon.ico'))
-
+        self.setWindowIcon(TitleBar.iconFromBase64(TitleBar.image_base64))
+        
         #***********************************
         # Initial conditions
         #***********************************
-        self.current_result_view = 'reduced'
         self.current_line_edit = None
-   
+        self.matlab_code = ''
+        self.latex_code = ''
         #***********************************
         # Dropdown widgets and layout
         #***********************************
@@ -81,15 +84,8 @@ class MatrixMultiplicationApp(QWidget):
         dropdown_mode.setFocusPolicy(Qt.NoFocus)
         dropdown_mode.setCurrentIndex(0)
 
-        dropdown_result = QComboBox()
-        dropdown_result.addItems(["Basic Result", "Extended Result"])
-        dropdown_result.setFixedSize(150, 30)
-        dropdown_result.setCursor(Qt.PointingHandCursor)
-        dropdown_result.setFocusPolicy(Qt.NoFocus)
-
         dropdown_layout = QHBoxLayout()
         dropdown_layout.addWidget(dropdown_mode)
-        dropdown_layout.addWidget(dropdown_result)
         dropdown_layout.addStretch(1)
 
         #***********************************
@@ -107,7 +103,7 @@ class MatrixMultiplicationApp(QWidget):
         cross_label = QLabel("=")
         cross_label.setFixedSize(50, 50)
         cross_label.setFont(QFont("Arial", 48, QFont.Bold))  
-        cross_label.setAlignment(Qt.AlignCenter)  
+        cross_label.setAlignment(Qt.AlignCenter) 
         cross_layout = QVBoxLayout()
         cross_layout.addStretch(1)
         cross_layout.addWidget(cross_label)
@@ -130,7 +126,7 @@ class MatrixMultiplicationApp(QWidget):
         matrix_layout.addLayout(self.right_matrix)
         matrix_layout.addLayout(cross_layout)
         matrix_layout.addLayout(self.result_matrix)
- 
+
         #***********************************
         # Greek letter buttons 'α' - 'ω' and layout
         #***********************************
@@ -256,6 +252,7 @@ class MatrixMultiplicationApp(QWidget):
         #***********************************
         # Add main_layout to window
         #***********************************
+        #self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setLayout(main_layout)
 
         #***********************************
@@ -263,8 +260,9 @@ class MatrixMultiplicationApp(QWidget):
         #***********************************
         compute_button.clicked.connect(self.compute)
         reset_button.clicked.connect(self.reset)
+        latex_button.clicked.connect(self.copy_latex_code)
+        matlab_button.clicked.connect(self.copy_matlab_code)
         dropdown_mode.currentIndexChanged.connect(self.on_dropdown_mode_selection)
-        dropdown_result.currentIndexChanged.connect(self.on_dropdown_result_selection)
 
     #***********************************
     # Dropdown functions
@@ -272,14 +270,6 @@ class MatrixMultiplicationApp(QWidget):
     def on_dropdown_mode_selection(self, index):
         self.setStyleSheet(window_style_sheet[index])
         self.title_bar.title_label.setStyleSheet(window_style_sheet[index])
-    
-    def on_dropdown_result_selection(self, index):
-        if index == 0:
-            self.current_result_view = 'reduced'
-        elif index == 1:
-            self.current_result_view = 'full'
-        self.compute()
-        print(f"Selected option: {self.sender().currentText()} at index {index}")
 
     #***********************************
     # Grid and Matrices creation and handle funcions
@@ -302,6 +292,12 @@ class MatrixMultiplicationApp(QWidget):
 
     def set_current_line_edit(self):
         self.current_line_edit = self.sender()
+
+    def copy_matlab_code(self):
+        pyperclip.copy(self.matlab_code)
+
+    def copy_latex_code(self):
+        pyperclip.copy(self.latex_code)
 
     def insert_greek_letter(self, letter):
         if self.current_line_edit is not None:
@@ -348,6 +344,10 @@ class MatrixMultiplicationApp(QWidget):
     # Function which does the (meth) math
     #***********************************
     def compute(self):
+        for widget in self.findChildren(QLineEdit, name='result_matrix'):
+            widget.clear()
+            widget.setStyleSheet("background-color: lightgrey; border: 1px solid black;")
+
         lm_rows, lm_cols, lm_valid = self.check_matrix_sizes(self.left_matrix)
         rm_rows, rm_cols, rm_valid = self.check_matrix_sizes(self.right_matrix)
         if (not lm_valid) and (not rm_valid):
@@ -360,7 +360,41 @@ class MatrixMultiplicationApp(QWidget):
             self.error_label.setText("Invalid Matrix Dimensions!")
         else:
             self.error_label.setText("")
-        for i in range(lm_rows):         # Loop over rows of left matrix
+
+        M_R = Matrix([[self.right_matrix.itemAtPosition(i, j).widget().text() for i in range(rm_rows)] for j in range(rm_cols)])
+        M_L = Matrix([[self.left_matrix.itemAtPosition(i, j).widget().text() for i in range(lm_rows)] for j in range(lm_cols)])
+
+        M_Res = M_R * M_L
+
+        self.matlab_code += f"{'M_L'} = ["
+        for i in range(M_L.shape[0]):
+            row_entries = ' '.join([str(M_L[i, j]) for j in range(M_L.shape[1])]) 
+            self.matlab_code += row_entries
+            if i < M_L.shape[0] - 1:
+                self.matlab_code += "; "
+        self.matlab_code += "];\n"
+
+        self.matlab_code += f"{'M_R'} = ["
+        for i in range(M_R.shape[0]):
+            row_entries = ' '.join([str(M_R[i, j]) for j in range(M_R.shape[1])]) 
+            self.matlab_code += row_entries
+            if i < M_R.shape[0] - 1:
+                self.matlab_code += "; "
+        self.matlab_code += "];\n"
+
+        self.matlab_code += 'M_Res = M_L * M_R'
+
+        self.latex_code = latex(M_L) + '$\\times$' + latex(M_R) + '$=$' + latex(M_Res) 
+        print(M_Res)
+        print(self.latex_code)
+        print(self.matlab_code)
+        for row in range(M_Res.shape[0]):
+            for col in range(M_Res.shape[1]):
+                result_field = self.result_matrix.itemAtPosition(row, col).widget()                
+                if result_field is not None:
+                    result_field.setText(str(M_Res[row, col]))
+
+        """ for i in range(lm_rows):         # Loop over rows of left matrix
             for j in range(rm_cols):     # Loop over columns of right matrix
                 result_string = ''    
                 for k in range(lm_cols): # Loop over columns of left matrix (or rows of right matrix)
@@ -382,7 +416,8 @@ class MatrixMultiplicationApp(QWidget):
                 if result_field is not None:
                     print("updating field with: " + result_string + "with current_view: " + self.current_result_view)
                     result_field.setText(result_string[1:])
-
+ """
+    
     #***********************************
     # Function which resets all grids (matrices)
     #***********************************   
